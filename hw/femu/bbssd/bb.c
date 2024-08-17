@@ -20,6 +20,9 @@ static void bb_init(FemuCtrl *n, Error **errp)
     ssd->dataplane_started_ptr = &n->dataplane_started;
     ssd->ssdname = (char *)n->devname;
     femu_debug("Starting FEMU in Blackbox-SSD mode ...\n");
+    printf("*********************************************\n");
+    printf("BLACK_BOX_INIT+\n");
+    printf("*********************************************\n");
     ssd_init(n);
 }
 

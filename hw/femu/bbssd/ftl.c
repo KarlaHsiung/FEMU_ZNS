@@ -1,16 +1,30 @@
 #include "ftl.h"
 
 //#define FEMU_DEBUG_FTL
-
+static int page_count_valid = 0;
+static int page_count_invalid = 0;
+static int page_count_free = 0;
 static void *ftl_thread(void *arg);
 
 static inline bool should_gc(struct ssd *ssd)
 {
+    FILE* fp;
+    char log_path [] = "./test_log_GC.txt";
+    fp = fopen(log_path, "a");
+    fprintf(fp,"should_gc FREE:%d target:%d\n",ssd->lm.free_line_cnt,ssd->sp.gc_thres_lines);
+    fprintf(fp,"valid:%d invalid:%d free:%d\n",page_count_valid,page_count_invalid,page_count_free);
+    fclose(fp);
     return (ssd->lm.free_line_cnt <= ssd->sp.gc_thres_lines);
 }
 
 static inline bool should_gc_high(struct ssd *ssd)
 {
+    FILE* fp;
+    char log_path [] = "./test_log_GC.txt";
+    fp = fopen(log_path, "a");
+    fprintf(fp,"should_gc_high FREE:%d target:%d\n",ssd->lm.free_line_cnt,ssd->sp.gc_thres_lines_high);
+    fprintf(fp,"valid:%d invalid:%d free:%d\n",page_count_valid,page_count_invalid,page_count_free);
+    fclose(fp);
     return (ssd->lm.free_line_cnt <= ssd->sp.gc_thres_lines_high);
 }
 
@@ -276,11 +290,22 @@ static void ssd_init_params(struct ssdparams *spp)
     spp->secs_per_line = spp->pgs_per_line * spp->secs_per_pg;
     spp->tt_lines = spp->blks_per_lun; /* TODO: to fix under multiplanes */
 
-    spp->gc_thres_pcent = 0.75;
+    spp->gc_thres_pcent = 0.2;
     spp->gc_thres_lines = (int)((1 - spp->gc_thres_pcent) * spp->tt_lines);
-    spp->gc_thres_pcent_high = 0.95;
+    spp->gc_thres_pcent_high = 0.1;
     spp->gc_thres_lines_high = (int)((1 - spp->gc_thres_pcent_high) * spp->tt_lines);
     spp->enable_gc_delay = true;
+
+    page_count_free = spp->tt_pgs;
+    FILE* fp;
+    char log_path [] = "./test_log_GC.txt";
+    fp = fopen(log_path, "a");
+    fprintf(fp,"thres_lines_count:%d\n",spp->gc_thres_lines);
+    fprintf(fp,"total_lines_count:%d\n",spp->tt_lines);
+    fprintf(fp,"total_pages_count:%d\n",spp->tt_pgs);
+    fprintf(fp,"total_blocks_count:%d\n",spp->tt_blks);
+    fclose(fp);
+
 
 
     check_params(spp);
@@ -463,6 +488,10 @@ static uint64_t ssd_advance_status(struct ssd *ssd, struct ppa *ppa, struct
     struct ssdparams *spp = &ssd->sp;
     struct nand_lun *lun = get_lun(ssd, ppa);
     uint64_t lat = 0;
+    
+    const char* fileName43 = "WRITE_lat.txt"; // add by karla
+    FILE *outfile43 = NULL; // add by karla
+    outfile43 = fopen(fileName43, "wb"); // add by karla
 
     switch (c) {
     case NAND_READ:
@@ -493,6 +522,8 @@ static uint64_t ssd_advance_status(struct ssd *ssd, struct ppa *ppa, struct
             lun->next_lun_avail_time = nand_stime + spp->pg_wr_lat;
         }
         lat = lun->next_lun_avail_time - cmd_stime;
+        fprintf(outfile43, "%lu\n", lat); // add by karla
+        fclose(outfile43); // add by karla
 
 #if 0
         chnl_stime = (ch->next_ch_avail_time < cmd_stime) ? cmd_stime : \
@@ -527,18 +558,26 @@ static uint64_t ssd_advance_status(struct ssd *ssd, struct ppa *ppa, struct
 /* update SSD status about one page from PG_VALID -> PG_VALID */
 static void mark_page_invalid(struct ssd *ssd, struct ppa *ppa)
 {
+    //add by shen
+    // FILE* fp;
+    // char log_path [] = "./test_log_GC.txt";
+    // fp = fopen(log_path, "a");
+    // fprintf(fp,"CALL mark_page_invalid\n");
+    //add by shen
     struct line_mgmt *lm = &ssd->lm;
     struct ssdparams *spp = &ssd->sp;
     struct nand_block *blk = NULL;
     struct nand_page *pg = NULL;
     bool was_full_line = false;
     struct line *line;
-
+    //printf("mark page invalid!!!!!!!\n");
     /* update corresponding page status */
     pg = get_pg(ssd, ppa);
     ftl_assert(pg->status == PG_VALID);
     pg->status = PG_INVALID;
-
+    // shen
+    page_count_invalid ++ ;
+    page_count_free --;
     /* update corresponding block status */
     blk = get_blk(ssd, ppa);
     ftl_assert(blk->ipc >= 0 && blk->ipc < spp->pgs_per_blk);
@@ -570,10 +609,17 @@ static void mark_page_invalid(struct ssd *ssd, struct ppa *ppa)
         pqueue_insert(lm->victim_line_pq, line);
         lm->victim_line_cnt++;
     }
+    
 }
 
 static void mark_page_valid(struct ssd *ssd, struct ppa *ppa)
 {
+    //add by shen
+    // FILE* fp;
+    // char log_path [] = "./test_log_GC.txt";
+    // fp = fopen(log_path, "a");
+    // fprintf(fp,"CALL mark_page_valid\n");
+    //add by shen
     struct nand_block *blk = NULL;
     struct nand_page *pg = NULL;
     struct line *line;
@@ -582,7 +628,9 @@ static void mark_page_valid(struct ssd *ssd, struct ppa *ppa)
     pg = get_pg(ssd, ppa);
     ftl_assert(pg->status == PG_FREE);
     pg->status = PG_VALID;
-
+    //shen
+    page_count_valid++;
+    page_count_free --;
     /* update corresponding block status */
     blk = get_blk(ssd, ppa);
     ftl_assert(blk->vpc >= 0 && blk->vpc < ssd->sp.pgs_per_blk);
@@ -596,6 +644,12 @@ static void mark_page_valid(struct ssd *ssd, struct ppa *ppa)
 
 static void mark_block_free(struct ssd *ssd, struct ppa *ppa)
 {
+    //add by shen
+    // FILE* fp;
+    // char log_path [] = "./test_log_GC.txt";
+    // fp = fopen(log_path, "a");
+    // fprintf(fp,"CALL mark_block_free\n");
+    //add by shen
     struct ssdparams *spp = &ssd->sp;
     struct nand_block *blk = get_blk(ssd, ppa);
     struct nand_page *pg = NULL;
@@ -603,6 +657,14 @@ static void mark_block_free(struct ssd *ssd, struct ppa *ppa)
     for (int i = 0; i < spp->pgs_per_blk; i++) {
         /* reset page status */
         pg = &blk->pg[i];
+        if(pg->status == PG_INVALID){
+            page_count_invalid--;
+            page_count_free ++;
+        }
+        else if(pg->status == PG_VALID){
+            page_count_valid--;
+            page_count_free ++;    
+        }
         ftl_assert(pg->nsecs == spp->secs_per_pg);
         pg->status = PG_FREE;
     }
@@ -616,6 +678,12 @@ static void mark_block_free(struct ssd *ssd, struct ppa *ppa)
 
 static void gc_read_page(struct ssd *ssd, struct ppa *ppa)
 {
+    //add by shen
+    // FILE* fp;
+    // char log_path [] = "./test_log_GC.txt";
+    // fp = fopen(log_path, "a");
+    // fprintf(fp,"CALL gc_read_page\n");
+    //add by shen
     /* advance ssd status, we don't care about how long it takes */
     if (ssd->sp.enable_gc_delay) {
         struct nand_cmd gcr;
@@ -629,6 +697,12 @@ static void gc_read_page(struct ssd *ssd, struct ppa *ppa)
 /* move valid page data (already in DRAM) from victim line to a new page */
 static uint64_t gc_write_page(struct ssd *ssd, struct ppa *old_ppa)
 {
+    //add by shen
+    // FILE* fp;
+    // char log_path [] = "./test_log_GC.txt";
+    // fp = fopen(log_path, "a");
+    // fprintf(fp,"CALL gc_write_page\n");
+    //add by shen
     struct ppa new_ppa;
     struct nand_lun *new_lun;
     uint64_t lpn = get_rmap_ent(ssd, old_ppa);
@@ -667,6 +741,12 @@ static uint64_t gc_write_page(struct ssd *ssd, struct ppa *old_ppa)
 
 static struct line *select_victim_line(struct ssd *ssd, bool force)
 {
+    //add by shen
+    // FILE* fp;
+    // char log_path [] = "./test_log_GC.txt";
+    // fp = fopen(log_path, "a");
+    // fprintf(fp,"CALL select_victim_line\n");
+    //add by shen
     struct line_mgmt *lm = &ssd->lm;
     struct line *victim_line = NULL;
 
@@ -682,7 +762,7 @@ static struct line *select_victim_line(struct ssd *ssd, bool force)
     pqueue_pop(lm->victim_line_pq);
     victim_line->pos = 0;
     lm->victim_line_cnt--;
-
+    //printf("select VIC !!!!!!!\n");
     /* victim_line is a danggling node now */
     return victim_line;
 }
@@ -690,6 +770,12 @@ static struct line *select_victim_line(struct ssd *ssd, bool force)
 /* here ppa identifies the block we want to clean */
 static void clean_one_block(struct ssd *ssd, struct ppa *ppa)
 {
+    //add by shen
+    // FILE* fp;
+    // char log_path [] = "./test_log_GC.txt";
+    // fp = fopen(log_path, "a");
+    // fprintf(fp,"CALL clean_one_block\n");
+    //add by shen
     struct ssdparams *spp = &ssd->sp;
     struct nand_page *pg_iter = NULL;
     int cnt = 0;
@@ -703,6 +789,8 @@ static void clean_one_block(struct ssd *ssd, struct ppa *ppa)
             gc_read_page(ssd, ppa);
             /* delay the maptbl update until "write" happens */
             gc_write_page(ssd, ppa);
+            page_count_valid++;
+            page_count_free--;
             cnt++;
         }
     }
@@ -711,14 +799,26 @@ static void clean_one_block(struct ssd *ssd, struct ppa *ppa)
 }
 
 static void mark_line_free(struct ssd *ssd, struct ppa *ppa)
-{
+{   
+    //add by shen
+    // FILE* fp;
+    // char log_path [] = "./test_log_GC.txt";
+    // fp = fopen(log_path, "a");
+    // fprintf(fp,"CALL mark_line_free\n");
+    //add by shen
     struct line_mgmt *lm = &ssd->lm;
     struct line *line = get_line(ssd, ppa);
+    // int valid = line->vpc;
+    // int invalid = line->ipc;
+    // page_count_valid -= valid;
+    // page_count_invalid -= invalid;
+    // page_count_free += (valid + invalid);
     line->ipc = 0;
     line->vpc = 0;
     /* move this line to free line list */
     QTAILQ_INSERT_TAIL(&lm->free_line_list, line, entry);
     lm->free_line_cnt++;
+    //printf("line FREE !!!!!!!\n");
 }
 
 static int do_gc(struct ssd *ssd, bool force)
@@ -728,7 +828,9 @@ static int do_gc(struct ssd *ssd, bool force)
     struct nand_lun *lunp;
     struct ppa ppa;
     int ch, lun;
-
+    //add by shen
+    
+    //add by shen
     victim_line = select_victim_line(ssd, force);
     if (!victim_line) {
         return -1;
@@ -760,15 +862,23 @@ static int do_gc(struct ssd *ssd, bool force)
             lunp->gc_endtime = lunp->next_lun_avail_time;
         }
     }
-
+    
     /* update line status */
     mark_line_free(ssd, &ppa);
-
+    FILE* fp;
+    char log_path [] = "./test_log_GC.txt";
+    fp = fopen(log_path, "a");
+    fprintf(fp,"GC_sucess\n");
+    fclose(fp);
     return 0;
 }
 
 static uint64_t ssd_read(struct ssd *ssd, NvmeRequest *req)
 {
+    // FILE* fp;
+    // char log_path [] = "./test_log_GC.txt";
+    // fp = fopen(log_path, "a");
+    // fprintf(fp,"READ \n");
     struct ssdparams *spp = &ssd->sp;
     uint64_t lba = req->slba;
     int nsecs = req->nlb;
@@ -818,7 +928,11 @@ static uint64_t ssd_write(struct ssd *ssd, NvmeRequest *req)
     if (end_lpn >= spp->tt_pgs) {
         ftl_err("start_lpn=%"PRIu64",tt_pgs=%d\n", start_lpn, ssd->sp.tt_pgs);
     }
-
+    FILE* fp;
+    char log_path [] = "./test_log_GC.txt";
+    fp = fopen(log_path, "a");
+    fprintf(fp,"WRITE \n");
+    fclose(fp);
     while (should_gc_high(ssd)) {
         /* perform GC here until !should_gc(ssd) */
         r = do_gc(ssd, true);

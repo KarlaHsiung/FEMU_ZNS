@@ -1,5 +1,7 @@
 #include "./nvme.h"
 
+
+static int pri = 0;
 static uint16_t nvme_io_cmd(FemuCtrl *n, NvmeCmd *cmd, NvmeRequest *req);
 
 static void nvme_update_sq_eventidx(const NvmeSQueue *sq)
@@ -307,6 +309,7 @@ void nvme_create_poller(FemuCtrl *n)
 
 uint16_t nvme_rw(FemuCtrl *n, NvmeNamespace *ns, NvmeCmd *cmd, NvmeRequest *req)
 {
+    uint16_t code = cmd->opcode;
     NvmeRwCmd *rw = (NvmeRwCmd *)cmd;
     uint16_t ctrl = le16_to_cpu(rw->control);
     uint32_t nlb  = le16_to_cpu(rw->nlb) + 1;
@@ -322,9 +325,46 @@ uint16_t nvme_rw(FemuCtrl *n, NvmeNamespace *ns, NvmeCmd *cmd, NvmeRequest *req)
     uint64_t elba = slba + nlb;
     uint16_t err;
     int ret;
-
+    int rsvd1  = (int)le32_to_cpu(rw->rsvd2_1);
+    int rsvd2  = (int)le32_to_cpu(rw->rsvd2_2);
+    time_t t = time(NULL);
+    struct tm tm = *localtime(&t);
+    FILE* fp;
+    
     req->is_write = (rw->opcode == NVME_CMD_WRITE) ? 1 : 0;
+    char log_path [] = "./test_log.txt";
 
+    fp = fopen(log_path, "a");
+    
+    if (fp == NULL) {
+        printf("Error opening file.\n");
+        exit(1);
+    }
+    // printf("[ Debug Msg : Opcode ] -  %d\n",code);
+    // printf("[ Debug Msg : inode ] -  %d\n",rsvd1);
+    // printf("[ Debug Msg : pid ] -  %d\n",rsvd2);
+    // printf("[ Debug Msg :  read/write ] -  %d\n",req->is_write);
+    // printf("[ Debug Msg :  slba ] -  %ld\n",slba);
+
+    // print in log file.
+    fprintf(fp,"test, from nvme_rw");
+    fprintf(fp,"Program started on %d-%02d-%02d %02d:%02d:%02d\n", tm.tm_year + 1900, tm.tm_mon + 1, tm.tm_mday, tm.tm_hour, tm.tm_min, tm.tm_sec);
+    fprintf(fp," Opcode  -  %d\n",code);
+    pri++;
+    fprintf(fp," inode  -  %d\n",rsvd1);
+    pri++;
+    fprintf(fp," pid  -  %d\n",rsvd2);
+    pri++;
+    fprintf(fp," read/write  -  %d\n",req->is_write);
+    pri++;
+    fprintf(fp," slba  -  %ld\n",slba);
+    pri++;
+    fprintf(fp," nlb  -  %hu\n",nlb);
+    pri++;
+
+
+    fclose(fp);
+   
     err = femu_nvme_rw_check_req(n, ns, cmd, req, slba, elba, nlb, ctrl,
                                  data_size, meta_size);
     if (err)
@@ -353,6 +393,7 @@ uint16_t nvme_rw(FemuCtrl *n, NvmeNamespace *ns, NvmeCmd *cmd, NvmeRequest *req)
 static uint16_t nvme_dsm(FemuCtrl *n, NvmeNamespace *ns, NvmeCmd *cmd,
                          NvmeRequest *req)
 {
+    
     uint32_t dw10 = le32_to_cpu(cmd->cdw10);
     uint32_t dw11 = le32_to_cpu(cmd->cdw11);
     uint64_t prp1 = le64_to_cpu(cmd->dptr.prp1);
@@ -391,6 +432,7 @@ static uint16_t nvme_dsm(FemuCtrl *n, NvmeNamespace *ns, NvmeCmd *cmd,
 static uint16_t nvme_compare(FemuCtrl *n, NvmeNamespace *ns, NvmeCmd *cmd,
                              NvmeRequest *req)
 {
+    
     NvmeRwCmd *rw = (NvmeRwCmd *)cmd;
     uint32_t nlb  = le16_to_cpu(rw->nlb) + 1;
     uint64_t slba = le64_to_cpu(rw->slba);
@@ -448,6 +490,7 @@ static uint16_t nvme_flush(FemuCtrl *n, NvmeNamespace *ns, NvmeCmd *cmd,
 static uint16_t nvme_write_zeros(FemuCtrl *n, NvmeNamespace *ns, NvmeCmd *cmd,
                                  NvmeRequest *req)
 {
+    
     NvmeRwCmd *rw = (NvmeRwCmd *)cmd;
     uint64_t slba = le64_to_cpu(rw->slba);
     uint32_t nlb  = le16_to_cpu(rw->nlb) + 1;
@@ -481,6 +524,7 @@ static uint16_t nvme_write_uncor(FemuCtrl *n, NvmeNamespace *ns, NvmeCmd *cmd,
 
 static uint16_t nvme_io_cmd(FemuCtrl *n, NvmeCmd *cmd, NvmeRequest *req)
 {
+    
     NvmeNamespace *ns;
     uint32_t nsid = le32_to_cpu(cmd->nsid);
 
@@ -490,7 +534,21 @@ static uint16_t nvme_io_cmd(FemuCtrl *n, NvmeCmd *cmd, NvmeRequest *req)
     }
 
     req->ns = ns = &n->namespaces[nsid - 1];
+    char log_path [] = "./test_log.txt";
+    FILE* fp;
+    time_t t = time(NULL);
+    struct tm tm = *localtime(&t);
+    fp = fopen(log_path, "a");
 
+    if (fp == NULL) {
+        printf("Error opening file.\n");
+        exit(1);
+    }
+
+    fprintf(fp, "Program started on %d-%02d-%02d %02d:%02d:%02d\n", tm.tm_year + 1900, tm.tm_mon + 1, tm.tm_mday, tm.tm_hour, tm.tm_min, tm.tm_sec);
+    fprintf(fp,"[ Debug Msg - %d : IO-Opcode ] -  %d\n",pri,cmd->opcode);
+    fclose(fp);
+    pri++;
     switch (cmd->opcode) {
     case NVME_CMD_FLUSH:
         if (!n->id_ctrl.vwc || !n->features.volatile_wc) {

@@ -418,7 +418,8 @@ typedef struct NvmeRwCmd {
     uint8_t     flags;
     uint16_t    cid;
     uint32_t    nsid;
-    uint64_t    rsvd2;
+    uint32_t    rsvd2_1;
+    uint32_t    rsvd2_2;
     uint64_t    mptr;
     uint64_t    prp1;
     uint64_t    prp2;
@@ -856,7 +857,7 @@ typedef struct NvmeLBAF {
 #define NVME_NSID_BROADCAST 0xffffffff
 
 typedef struct NvmeIdNs {
-    uint64_t    nsze;
+    uint64_t    nsze; //Namespace size
     uint64_t    ncap;
     uint64_t    nuse;
     uint8_t     nsfeat;

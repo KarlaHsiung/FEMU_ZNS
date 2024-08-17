@@ -1,0 +1,7 @@
+{
+    "C_Cpp.errorSquiggles": "enabled",
+    "files.associations": {
+        "kernel.h": "c",
+        "qemu-print.h": "c"
+    }
+}

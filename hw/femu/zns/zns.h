@@ -66,6 +66,21 @@ typedef struct QEMU_PACKED NvmeZoneDescr {
     uint8_t     rsvd32[32];
 } NvmeZoneDescr;
 
+// add by Karla
+void add_to_table(int inode, uint64_t zone_lba_start);
+bool change_slba_byinode(NvmeNamespace *ns, int inode, int pid, uint64_t slba, uint32_t nlb, uint64_t *new_slba);
+#define MAX_TABLE_SIZE 10000
+typedef struct {
+    int ip_zone_id;
+    int ip_zone_inode;
+    int ip_zone_pid;
+    uint64_t zone_lba_start;
+    //uint64_t zone_lba_end;
+    //int block_id_start;
+    //int block_id_end;
+} InodePid_table;
+
+
 typedef enum NvmeZoneState {
     NVME_ZONE_STATE_RESERVED         = 0x00,
     NVME_ZONE_STATE_EMPTY            = 0x01,
@@ -213,6 +228,8 @@ static inline void zns_aor_inc_active(NvmeNamespace *ns)
         assert(n->nr_active_zones <= n->max_active_zones);
     }
 }
+
+
 
 static inline void zns_aor_dec_active(NvmeNamespace *ns)
 {
